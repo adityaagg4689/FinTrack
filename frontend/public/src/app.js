@@ -1,8 +1,9 @@
-// DFinance - Advanced Personal Finance Tracker
+// FinTrack - Advanced Personal Finance Tracker
 // Modern design with enhanced functionality
 
 document.addEventListener('DOMContentLoaded', () => {
-    const API_URL = 'https://fintrack-40to.onrender.com';
+   const API_URL ='https://fintrack-40to.onrender.com';
+
     
     // Application state
     const state = {
@@ -143,7 +144,7 @@ document.addEventListener('DOMContentLoaded', () => {
         
         // Check if this is the first visit
         setTimeout(() => {
-            if (!localStorage.getItem('dfinance_tutorial_completed')) {
+            if (!localStorage.getItem('FinTrack_tutorial_completed')) {
                 showWelcomeMessage();
             }
         }, 2000);
@@ -172,21 +173,27 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Setup live time display
     function setupLiveTime() {
-        function updateTime() {
-            const now = new Date();
-            const timeString = now.toLocaleTimeString('en-US', { 
-                hour12: false,
-                hour: '2-digit',
-                minute: '2-digit',
-                second: '2-digit'
-            });
-            if (elements.liveTime) {
-                elements.liveTime.textContent = timeString;
-            }
-        }
-        updateTime();
-        setInterval(updateTime, 1000);
+    const liveTimeEl = document.getElementById('live-time');
+
+    if (!liveTimeEl) {
+        console.error('❌ live-time element not found');
+        return;
     }
+
+    function updateTime() {
+        const now = new Date();
+        liveTimeEl.textContent = now.toLocaleTimeString('en-US', {
+            hour12: false,
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit'
+        });
+    }
+
+    updateTime();
+    setInterval(updateTime, 1000);
+}
+
 
     // Set default date to today
     function setDefaultDate() {
@@ -801,13 +808,13 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // Utility functions
-    function formatCurrency(amount) {
-        return new Intl.NumberFormat('de-DE', { 
-            style: 'currency', 
-            currency: 'EUR' 
-        }).format(amount);
-    }
-
+    const formatCurrency = (amount) => {
+    return Number(amount).toLocaleString('en-IN', {
+        style: 'currency',
+        currency: 'INR',
+        maximumFractionDigits: 2
+    });
+};
     function getCategoryIcon(category, type) {
         const icons = {
             // Income icons
@@ -1301,7 +1308,7 @@ document.addEventListener('DOMContentLoaded', () => {
         showTutorialStep(currentTutorialStep);
         
         // Show tutorial start notification
-        showNotification('🎓 Welcome to the DFinance guided tour!', 'info');
+        showNotification('🎓 Welcome to the FinTrack guided tour!', 'info');
     }
 
     function createTutorialOverlay() {
@@ -1509,9 +1516,9 @@ document.addEventListener('DOMContentLoaded', () => {
         });
         
         // Mark tutorial as completed
-        localStorage.setItem('dfinance_tutorial_completed', 'true');
+        localStorage.setItem('FinTrack_tutorial_completed', 'true');
         
-        showNotification('🎉 Guided tour completed! You now master DFinance!', 'success');
+        showNotification('🎉 Guided tour completed! You now master FinTrack!', 'success');
     }
 
     function showWelcomeMessage() {
@@ -1521,7 +1528,7 @@ document.addEventListener('DOMContentLoaded', () => {
             <div class="bg-gradient-to-br from-gray-800 to-gray-900 rounded-xl p-8 border border-orange-500 shadow-2xl max-w-md mx-4 text-center">
                 <div class="text-6xl mb-4">🏁</div>
                 <h2 class="text-2xl font-bold text-white mb-4" style="font-family: 'Orbitron', monospace;">
-                    Welcome to DFinance !
+                    Welcome to FinTrack !
                 </h2>
                 <p class="text-gray-300 mb-6 leading-relaxed">
                     Your premium personal finance manager ! 
@@ -1549,14 +1556,14 @@ document.addEventListener('DOMContentLoaded', () => {
         
         document.getElementById('skip-tour-btn').addEventListener('click', () => {
             welcomeModal.remove();
-            localStorage.setItem('dfinance_tutorial_completed', 'true');
+            localStorage.setItem('FinTrack_tutorial_completed', 'true');
         });
         
         // Close on backdrop click
         welcomeModal.addEventListener('click', (e) => {
             if (e.target === welcomeModal) {
                 welcomeModal.remove();
-                localStorage.setItem('dfinance_tutorial_completed', 'true');
+                localStorage.setItem('FinTrack_tutorial_completed', 'true');
             }
         });
     }
