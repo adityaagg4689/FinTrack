@@ -1,4 +1,4 @@
--- DFinance Database Schema
+--  Database Schema
 -- Advanced Personal Finance Tracker
 
 -- Users table for authentication
@@ -83,27 +83,15 @@ ON CONFLICT DO NOTHING;
 
 -- Insert sample data for demo
 INSERT INTO transactions (type, description, amount, date, category, payment_method, notes, user_id) VALUES
-('income', 'Monthly Salary', 3500.00, '2025-01-01', 'Salary', 'bank_transfer', 'January salary payment', NULL),
-('expense', 'Grocery Shopping', 85.50, '2025-01-02', 'Food & Groceries', 'credit_card', 'Weekly groceries', NULL),
-('expense', 'Gas Station', 65.00, '2025-01-03', 'Transport', 'credit_card', 'Full tank', NULL),
-('expense', 'Netflix Subscription', 15.99, '2025-01-04', 'Entertainment', 'credit_card', 'Monthly subscription', NULL),
-('income', 'Freelance Project', 800.00, '2025-01-05', 'Freelance', 'bank_transfer', 'Web development project', NULL),
-('expense', 'Restaurant Dinner', 45.00, '2025-01-06', 'Food & Groceries', 'credit_card', 'Date night', NULL),
-('expense', 'Electricity Bill', 120.00, '2025-01-07', 'Housing & Utilities', 'bank_transfer', 'Monthly electricity', NULL)
+
 ON CONFLICT DO NOTHING;
 
 -- Insert sample goals
 INSERT INTO goals (title, description, target_amount, current_amount, target_date, category, user_id) VALUES
-('Emergency Fund', 'Build an emergency fund for unexpected expenses', 5000.00, 1200.00, '2025-12-31', 'Savings', NULL),
-('Vacation Fund', 'Save for summer vacation in Italy', 2500.00, 450.00, '2025-06-30', 'Travel', NULL),
-('New Laptop', 'Save for a new MacBook Pro', 2000.00, 600.00, '2025-04-30', 'Technology', NULL)
+
 ON CONFLICT DO NOTHING;
 
 -- Insert sample budgets for current month
 INSERT INTO budgets (category, monthly_limit, spent_amount, month, year, user_id) VALUES
-('Food & Groceries', 400.00, 130.50, 1, 2025, NULL),
-('Transport', 200.00, 65.00, 1, 2025, NULL),
-('Entertainment', 150.00, 15.99, 1, 2025, NULL),
-('Housing & Utilities', 800.00, 120.00, 1, 2025, NULL),
-('Shopping', 300.00, 0.00, 1, 2025, NULL)
+
 ON CONFLICT DO NOTHING;

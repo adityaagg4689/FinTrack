@@ -466,7 +466,7 @@ app.get('/categories', async (req, res) => {
 const PORT = process.env.PORT || 3001;
 if (process.env.NODE_ENV !== 'test') {
   app.listen(PORT, '0.0.0.0', () => {
-    console.log(`🚀 DFinance API server running on port ${PORT}`);
+    console.log(`🚀 FinTrack API server running on port ${PORT}`);
     console.log(`🏁 Environment: ${process.env.NODE_ENV || 'development'}`);
   });
 }
