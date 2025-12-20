@@ -23,7 +23,7 @@ app.use(cors({
   origin: [
     'http://localhost:3000',
     'http://127.0.0.1:3000',
-    'https://fintrack-1-g7rr.onrender.com/'
+    'https://fintrack-1-g7rr.onrender.com'
   ],
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
