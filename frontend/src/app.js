@@ -5,7 +5,7 @@ document.addEventListener('DOMContentLoaded', () => {
    const API_URL =
   window.location.hostname === 'localhost'
     ? 'http://localhost:3001'
-    : 'https://YOUR_BACKEND_URL.onrender.com';
+    : 'https://fintrack-40to.onrender.com';
 
     
     // Application state
