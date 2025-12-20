@@ -1,15 +1,15 @@
-# 🚀 DFinance - Ultimate Personal Finance Tracker
+
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Docker](https://img.shields.io/badge/docker-%230db7ed.svg?style=flat&logo=docker&logoColor=white)](https://www.docker.com/)
 [![Node.js](https://img.shields.io/badge/node.js-6DA55F?style=flat&logo=node.js&logoColor=white)](https://nodejs.org/)
 [![PostgreSQL](https://img.shields.io/badge/postgres-%23316192.svg?style=flat&logo=postgresql&logoColor=white)](https://www.postgresql.org/)
 
-![DFinance Banner](https://via.placeholder.com/800x200/FF6B00/000000?text=DFINANCE+-+MODERN+FINANCE+TRACKER)
+![FinTrack Banner](https://via.placeholder.com/800x200/FF6B00/000000?text=FinTrack+-+MODERN+FINANCE+TRACKER)
 
 ## 🚀 Overview
 
-**DFinance** is an advanced personal finance tracker inspired by modern's iconic orange and black design aesthetic. Built with cutting-edge web technologies, it offers a sleek, high-performance dashboard for managing your financial life with style and precision.
+**FinTrack** is an advanced personal finance tracker inspired by modern's iconic orange and black design aesthetic. Built with cutting-edge web technologies, it offers a sleek, high-performance dashboard for managing your financial life with style and precision.
 
 ### ✨ Key Features
 
@@ -54,8 +54,10 @@
 
 1. **Clone the repository**
    ```bash
-   git clone https://github.com/yourusername/DFinance.git
-   cd DFinance
+   git clone https://github.com/yourusername/FinTrack
+.git
+   cd FinTrack
+
    ```
 
 2. **Start with Docker Compose**
@@ -96,7 +98,8 @@
 3. **Database Setup**
    ```bash
    # Make sure PostgreSQL is running
-   psql -U postgres -d DfinanceDB -f backend/init.sql
+   psql -U postgres -d FinTrack
+DB -f backend/init.sql
    ```
 
 ### Troubleshooting
@@ -154,7 +157,7 @@ npm test
 ## 🏗️ Architecture
 
 ```
-DFinance/
+FinTrack/
 ├── 🐳 docker-compose.yml      # Container orchestration
 ├── 📱 frontend/               # React-like frontend
 │   ├── 🎨 src/
@@ -229,9 +232,9 @@ NODE_ENV=development
 PORT=3001
 DB_HOST=localhost
 DB_PORT=5432
-DB_NAME=DfinanceDB
-DB_USER=DfinanceUser
-DB_PASSWORD=DfinancePassword
+DB_NAME=FinTrackDB
+DB_USER=FinTrackUser
+DB_PASSWORD=FinTrackPassword
 
 # Frontend
 REACT_APP_API_URL=http://localhost:3001
@@ -330,9 +333,9 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## 📞 Support
 
-- **Issues**: [GitHub Issues](https://github.com/yourusername/DFinance/issues)
-- **Documentation**: [Wiki](https://github.com/yourusername/DFinance/wiki)
-- **Email**: support@dfinance.pro
+- **Issues**: [GitHub Issues](https://github.com/yourusername/FinTrack/issues)
+- **Documentation**: [Wiki](https://github.com/yourusername/FinTrack/wiki)
+- **Email**: support@FinTrack.pro
 
 ## 🗺️ Roadmap
 
@@ -356,6 +359,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ---
 
-**Built with 🏁 by the DFinance Team**
-
+**Built with 🏁 by the FinTrack Team**
 *Experience the thrill of financial control with modern-inspired design!*
+=======
+# FinTrack
