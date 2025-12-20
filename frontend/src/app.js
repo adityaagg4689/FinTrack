@@ -2,10 +2,7 @@
 // Modern design with enhanced functionality
 
 document.addEventListener('DOMContentLoaded', () => {
-   const API_URL =
-  window.location.hostname === 'localhost'
-    ? 'http://localhost:3001'
-    : 'https://fintrack-40to.onrender.com';
+   const API_URL = 'https://fintrack-40to.onrender.com';
 
     
     // Application state
