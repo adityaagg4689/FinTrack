@@ -3,8 +3,6 @@
 
 document.addEventListener('DOMContentLoaded', () => {
    const API_URL ='https://fintrack-40to.onrender.com';
-
-    
     // Application state
     const state = {
         transactions: [],
