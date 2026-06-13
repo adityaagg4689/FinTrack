@@ -11,4 +11,4 @@ RUN addgroup -g 1001 -S nodejs && \
 USER nodejs
 
 EXPOSE 5000
-CMD ["node", "index.js"]
+CMD ["node", "src/index.js"]
