@@ -1,0 +1,16 @@
+{
+  "name": "finance-app",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Finance tracker workspace",
+  "scripts": {
+    "dev": "concurrently \"npm run dev --prefix server\" \"npm run dev --prefix client\"",
+    "server": "npm run dev --prefix server",
+    "client": "npm run dev --prefix client",
+    "docker:up": "docker-compose up",
+    "docker:down": "docker-compose down"
+  },
+  "devDependencies": {
+    "concurrently": "^9.3.0"
+  }
+}
