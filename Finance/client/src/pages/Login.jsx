@@ -11,6 +11,8 @@ const Login = () => {
 
   // Check if already logged in
   useEffect(() => {
+    clearError(); // Clear any previous errors on mount
+    
     const checkSession = async () => {
       const session = await getSession();
       if (session) {
@@ -18,7 +20,7 @@ const Login = () => {
       }
     };
     checkSession();
-  }, [navigate, getSession]);
+  }, [navigate, getSession, clearError]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
