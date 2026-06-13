@@ -4,7 +4,7 @@ services:
   - type: web
     name: finance-tracker-api
     runtime: node
-    repo: https://github.com/YOUR_USERNAME/YOUR_REPO_NAME
+    repo: https://github.com/adityaagg4689/FinTrack
     branch: main
     plan: free
     buildCommand: cd server && npm install
@@ -21,16 +21,16 @@ services:
         sync: false
       - key: SUPABASE_ANON_KEY
         sync: false
+      - key: CORS_ORIGIN
+        sync: false
       - key: JWT_SECRET
         generateValue: true
-      - key: CLAUDE_API_KEY
-        sync: false
 
-  # Frontend Static Site
-  - type: static
+  # Frontend Static Site - Changed from "static" to "web" with static files
+  - type: web
     name: finance-tracker-web
     runtime: static
-    repo: https://github.com/YOUR_USERNAME/YOUR_REPO_NAME
+    repo: https://github.com/adityaagg4689/FinTrack
     branch: main
     buildCommand: cd client && npm install && npm run build
     staticPublishPath: ./client/dist
@@ -50,4 +50,4 @@ services:
         destination: /index.html
     envVars:
       - key: VITE_API_URL
-        value: https://finance-tracker-api.onrender.com/api
+        sync: false
