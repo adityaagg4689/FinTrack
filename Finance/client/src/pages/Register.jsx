@@ -15,6 +15,8 @@ const Register = () => {
 
   // Check if already logged in
   useEffect(() => {
+    clearError(); // Clear any previous errors on mount
+    
     const checkSession = async () => {
       const session = await getSession();
       if (session) {
@@ -22,7 +24,7 @@ const Register = () => {
       }
     };
     checkSession();
-  }, [navigate, getSession]);
+  }, [navigate, getSession, clearError]);
 
   const handleChange = (e) => {
     setFormData({
