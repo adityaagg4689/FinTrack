@@ -23,6 +23,15 @@ const useAuthStore = create(
           
           if (error) throw error;
           
+          // Detect duplicate email - Supabase returns user but no session when email exists
+          if (data.user && !data.session) {
+            set({ 
+              isLoading: false, 
+              error: 'An account with this email already exists. Please sign in instead.' 
+            });
+            return { success: false };
+          }
+          
           set({
             user: data.user,
             session: data.session,
@@ -69,7 +78,6 @@ const useAuthStore = create(
       },
 
       getSession: async () => {
-        // Don't set loading to avoid loops
         const { data: { session } } = await supabase.auth.getSession();
         if (session && !get().user) {
           set({ user: session.user, session: session, token: session?.access_token ?? null });
