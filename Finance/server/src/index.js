@@ -10,10 +10,10 @@ const authMiddleware = require('./middleware/auth');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
-app.use(cors({
-  origin: true,          // reflects whatever origin made the request — perfect for local dev
-  credentials: true,
-}));
+const allowedOrigins = [ 'http://localhost:5173', // local dev 
+'https://fintrack-3-mfkr.onrender.com']; 
+app.use(cors({ origin: (origin, callback) => { if (!origin || allowedOrigins.includes(origin)) { callback(null, true); } else { callback(new Error('Not allowed by CORS')); } }, credentials: true, }));
+
 app.use(express.json());
 
 // ==================== HEALTH CHECK ====================
