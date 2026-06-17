@@ -1,18 +1,30 @@
-const jwt = require('jsonwebtoken');
+const { supabaseAdmin } = require('./config/supabase');
 
-const authMiddleware = (req, res, next) => {
+const authMiddleware = async (req, res, next) => {
   try {
-    const token = req.headers.authorization?.split(' ')[1];
-
-    if (!token) {
+    const authHeader = req.headers.authorization;
+    
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
       return res.status(401).json({ error: 'No token provided' });
     }
 
-    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'your_secret_key');
-    req.userId = decoded.userId;
+    const token = authHeader.split(' ')[1];
+
+    // Verify token with Supabase
+    const { data: { user }, error } = await supabaseAdmin.auth.getUser(token);
+
+    if (error || !user) {
+      return res.status(401).json({ error: 'Invalid or expired token' });
+    }
+
+    // Attach user to request
+    req.user = user;
+    req.userId = user.id;
+    
     next();
   } catch (error) {
-    res.status(401).json({ error: 'Invalid token' });
+    console.error('Auth middleware error:', error);
+    res.status(500).json({ error: 'Authentication error' });
   }
 };
 
