@@ -1,7 +1,12 @@
 import { useState } from 'react';
 
-const formatCurrency = (amount) => `₹${Math.abs(amount).toLocaleString('en-IN')}`;
-
+// BudgetCard.jsx - Add the same guard
+const formatCurrency = (amount) => {
+  if (amount === null || amount === undefined || isNaN(amount)) {
+    return '₹0';
+  }
+  return `₹${Math.abs(amount).toLocaleString('en-IN')}`;
+};
 const BudgetCard = ({ budget, onEdit, onDelete }) => {
   const [showDetails, setShowDetails] = useState(false);
 
