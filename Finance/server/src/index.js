@@ -140,8 +140,9 @@ app.post('/api/transactions', authMiddleware, async (req, res) => {
     const { amount, type, category, date, note } = req.body;
 
     const validation = validateTransaction(amount, type, category, date);
-    if (!validation.valid)
+    if (!validation.valid) {
       return res.status(400).json({ success: false, errors: validation.errors });
+    }
 
     const { data, error } = await supabase
       .from('transactions')
@@ -164,32 +165,36 @@ app.post('/api/transactions', authMiddleware, async (req, res) => {
   }
 });
 
+// ✅ FIXED: Removed updated_at
 app.put('/api/transactions/:id', authMiddleware, async (req, res) => {
   try {
-    const { id }                         = req.params;
+    const { id } = req.params;
     const { amount, type, category, date, note } = req.body;
 
     const validation = validateTransaction(amount, type, category, date);
-    if (!validation.valid)
+    if (!validation.valid) {
       return res.status(400).json({ success: false, errors: validation.errors });
+    }
 
     const { data, error } = await supabase
       .from('transactions')
       .update({
-        amount:     parseFloat(amount),
+        amount: parseFloat(amount),
         type,
-        category:   category.trim(),
+        category: category.trim(),
         date,
-        note:       note ? note.trim() : null,
-        updated_at: new Date(),
+        note: note ? note.trim() : null,
+        // ✅ updated_at removed
       })
       .eq('id', id)
-      .eq('user_id', req.userId)   
+      .eq('user_id', req.userId)
       .select()
       .single();
 
     if (error) throw error;
-    if (!data)  return res.status(404).json({ success: false, error: 'Transaction not found' });
+    if (!data) {
+      return res.status(404).json({ success: false, error: 'Transaction not found' });
+    }
 
     res.json({ success: true, transaction: data });
   } catch (error) {
@@ -198,7 +203,6 @@ app.put('/api/transactions/:id', authMiddleware, async (req, res) => {
   }
 });
 
-// ✅ FIXED: Bulk Delete registered BEFORE :id route
 app.delete('/api/transactions/bulk', authMiddleware, async (req, res) => {
   try {
     const { ids } = req.body;
@@ -250,7 +254,9 @@ app.delete('/api/transactions/:id', authMiddleware, async (req, res) => {
       .single();
 
     if (error) throw error;
-    if (!data)  return res.status(404).json({ success: false, error: 'Transaction not found' });
+    if (!data) {
+      return res.status(404).json({ success: false, error: 'Transaction not found' });
+    }
 
     res.json({ success: true, message: 'Deleted successfully' });
   } catch (error) {
@@ -258,7 +264,6 @@ app.delete('/api/transactions/:id', authMiddleware, async (req, res) => {
     res.status(500).json({ success: false, error: error.message });
   }
 });
-
 // ==================== BUDGETS ====================
 
 app.get('/api/budgets', authMiddleware, async (req, res) => {
@@ -304,7 +309,7 @@ app.get('/api/budgets', authMiddleware, async (req, res) => {
       return {
         ...budget,
         spent,
-        percentage:   Math.min(percentage, 100),
+        percentage: Math.min(percentage, 100),
         isOverBudget: spent > budget.amount,
       };
     });
@@ -320,32 +325,36 @@ app.post('/api/budgets', authMiddleware, async (req, res) => {
   try {
     const { category, amount, month, year } = req.body;
 
-    // ✅ FIXED: Use updated validateBudget that returns parsed numbers
     const validation = validateBudget(category, amount, month, year);
-    if (!validation.valid)
+    if (!validation.valid) {
       return res.status(400).json({ success: false, errors: validation.errors });
+    }
 
     const { data: existing, error: checkError } = await supabase
       .from('budgets')
       .select('id')
-      .eq('user_id',  req.userId)
+      .eq('user_id', req.userId)
       .eq('category', category.trim())
-      .eq('month',    validation.numMonth)
-      .eq('year',     validation.numYear)
+      .eq('month', validation.numMonth)
+      .eq('year', validation.numYear)
       .maybeSingle();
 
     if (checkError) throw checkError;
-    if (existing)
-      return res.status(400).json({ success: false, error: 'A budget for this category and month already exists' });
+    if (existing) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'A budget for this category and month already exists' 
+      });
+    }
 
     const { data, error } = await supabase
       .from('budgets')
       .insert([{
-        user_id:  req.userId,
+        user_id: req.userId,
         category: category.trim(),
-        amount:   parseFloat(amount),
-        month:    validation.numMonth,
-        year:     validation.numYear,
+        amount: parseFloat(amount),
+        month: validation.numMonth,
+        year: validation.numYear,
       }])
       .select()
       .single();
@@ -358,38 +367,43 @@ app.post('/api/budgets', authMiddleware, async (req, res) => {
   }
 });
 
+// ✅ FIXED: Removed updated_at
 app.put('/api/budgets/:id', authMiddleware, async (req, res) => {
   try {
-    const { id }                         = req.params;
+    const { id } = req.params;
     const { category, amount, month, year } = req.body;
 
-    // ✅ FIXED: Use updated validateBudget
     const validation = validateBudget(category, amount, month, year);
-    if (!validation.valid)
+    if (!validation.valid) {
       return res.status(400).json({ success: false, errors: validation.errors });
+    }
 
     const { data: duplicate, error: dupError } = await supabase
       .from('budgets')
       .select('id')
-      .eq('user_id',  req.userId)
+      .eq('user_id', req.userId)
       .eq('category', category.trim())
-      .eq('month',    validation.numMonth)
-      .eq('year',     validation.numYear)
+      .eq('month', validation.numMonth)
+      .eq('year', validation.numYear)
       .neq('id', id)
       .maybeSingle();
 
     if (dupError) throw dupError;
-    if (duplicate)
-      return res.status(400).json({ success: false, error: 'Another budget already exists for this category and month' });
+    if (duplicate) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Another budget already exists for this category and month' 
+      });
+    }
 
     const { data, error } = await supabase
       .from('budgets')
       .update({
-        category:   category.trim(),
-        amount:     parseFloat(amount),
-        month:      validation.numMonth,
-        year:       validation.numYear,
-        updated_at: new Date(),
+        category: category.trim(),
+        amount: parseFloat(amount),
+        month: validation.numMonth,
+        year: validation.numYear,
+        // ✅ updated_at removed
       })
       .eq('id', id)
       .eq('user_id', req.userId)
@@ -397,7 +411,9 @@ app.put('/api/budgets/:id', authMiddleware, async (req, res) => {
       .single();
 
     if (error) throw error;
-    if (!data)  return res.status(404).json({ success: false, error: 'Budget not found' });
+    if (!data) {
+      return res.status(404).json({ success: false, error: 'Budget not found' });
+    }
 
     res.json({ success: true, budget: data });
   } catch (error) {
@@ -419,7 +435,9 @@ app.delete('/api/budgets/:id', authMiddleware, async (req, res) => {
       .single();
 
     if (error) throw error;
-    if (!data)  return res.status(404).json({ success: false, error: 'Budget not found' });
+    if (!data) {
+      return res.status(404).json({ success: false, error: 'Budget not found' });
+    }
 
     res.json({ success: true, message: 'Budget deleted' });
   } catch (error) {
@@ -427,7 +445,6 @@ app.delete('/api/budgets/:id', authMiddleware, async (req, res) => {
     res.status(500).json({ success: false, error: error.message });
   }
 });
-
 // ==================== GOALS ====================
 
 app.get('/api/goals', authMiddleware, async (req, res) => {
