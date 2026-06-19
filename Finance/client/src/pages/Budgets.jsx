@@ -3,8 +3,12 @@ import api from '../utils/api';
 import useAuthStore from '../store/authStore';
 import BudgetCard from './BudgetCard';
 import BudgetForm from './BudgetForm';
-
 const formatCurrency = (amount, showSign = false) => {
+  // ✅ Guard against null, undefined, or non-numeric values
+  if (amount === null || amount === undefined || isNaN(amount)) {
+    return '₹0';
+  }
+  
   const absAmount = Math.abs(amount);
   const formatted = `₹${absAmount.toLocaleString('en-IN')}`;
   if (!showSign) return formatted;
