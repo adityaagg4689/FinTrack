@@ -596,7 +596,8 @@ app.delete('/api/goals/:id', authMiddleware, async (req, res) => {
     console.error('DELETE /api/goals/:id:', error);
     res.status(500).json({ success: false, error: error.message });
   }
-});// ==================== RECURRING TRANSACTIONS ====================
+});
+// ==================== RECURRING TRANSACTIONS ====================
 
 app.get('/api/recurring/upcoming', authMiddleware, async (req, res) => {
   try {
@@ -655,8 +656,9 @@ app.post('/api/recurring', authMiddleware, async (req, res) => {
     if (!['daily', 'weekly', 'monthly', 'yearly'].includes(frequency)) errors.push('Invalid frequency');
     if (!next_due_date || isNaN(new Date(next_due_date).getTime()))    errors.push('A valid due date is required');
 
-    if (errors.length > 0)
+    if (errors.length > 0) {
       return res.status(400).json({ success: false, errors });
+    }
 
     const { data, error } = await supabase
       .from('recurring_transactions')
@@ -681,7 +683,64 @@ app.post('/api/recurring', authMiddleware, async (req, res) => {
   }
 });
 
-// ✅ Bulk DELETE for recurring registered BEFORE :id route
+// ✅ FIXED: Removed updated_at
+app.put('/api/recurring/:id', authMiddleware, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { name, amount, type, category, frequency, next_due_date, is_active } = req.body;
+
+    const errors = [];
+    if (!name || !name.trim()) errors.push('Name is required');
+    if (!amount || parseFloat(amount) <= 0) errors.push('Amount must be positive');
+    if (!type || !['income', 'expense'].includes(type)) errors.push('Type must be "income" or "expense"');
+    if (!category || !category.trim()) errors.push('Category is required');
+    if (!['daily', 'weekly', 'monthly', 'yearly'].includes(frequency)) errors.push('Invalid frequency');
+    if (is_active !== undefined && typeof is_active !== 'boolean') errors.push('is_active must be a boolean');
+
+    if (errors.length > 0) {
+      return res.status(400).json({ success: false, errors });
+    }
+
+    const updateData = {
+      name: name.trim(),
+      amount: parseFloat(amount),
+      type,
+      category: category.trim(),
+      frequency,
+      // ✅ updated_at removed
+    };
+
+    if (next_due_date) {
+      if (isNaN(new Date(next_due_date).getTime())) {
+        return res.status(400).json({ success: false, error: 'A valid due date is required' });
+      }
+      updateData.next_due_date = next_due_date;
+    }
+
+    if (is_active !== undefined) {
+      updateData.is_active = is_active;
+    }
+
+    const { data, error } = await supabase
+      .from('recurring_transactions')
+      .update(updateData)
+      .eq('id', id)
+      .eq('user_id', req.userId)
+      .select()
+      .single();
+
+    if (error) throw error;
+    if (!data) {
+      return res.status(404).json({ success: false, error: 'Recurring transaction not found' });
+    }
+
+    res.json({ success: true, recurring: data });
+  } catch (error) {
+    console.error('PUT /api/recurring/:id:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
 app.delete('/api/recurring/bulk', authMiddleware, async (req, res) => {
   try {
     const { ids } = req.body;
@@ -720,64 +779,6 @@ app.delete('/api/recurring/bulk', authMiddleware, async (req, res) => {
   }
 });
 
-app.put('/api/recurring/:id', authMiddleware, async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { name, amount, type, category, frequency, next_due_date, is_active } = req.body;
-
-    // Validation
-    const errors = [];
-    if (!name || !name.trim()) errors.push('Name is required');
-    if (!amount || parseFloat(amount) <= 0) errors.push('Amount must be positive');
-    if (!type || !['income', 'expense'].includes(type)) errors.push('Type must be "income" or "expense"');
-    if (!category || !category.trim()) errors.push('Category is required');
-    if (!['daily', 'weekly', 'monthly', 'yearly'].includes(frequency)) errors.push('Invalid frequency');
-    if (is_active !== undefined && typeof is_active !== 'boolean') errors.push('is_active must be a boolean');
-
-    if (errors.length > 0) {
-      return res.status(400).json({ success: false, errors });
-    }
-
-    const updateData = {
-      name: name.trim(),
-      amount: parseFloat(amount),
-      type,
-      category: category.trim(),
-      frequency,
-      updated_at: new Date(),
-    };
-
-    if (next_due_date) {
-      if (isNaN(new Date(next_due_date).getTime())) {
-        return res.status(400).json({ success: false, error: 'A valid due date is required' });
-      }
-      updateData.next_due_date = next_due_date;
-    }
-
-    if (is_active !== undefined) {
-      updateData.is_active = is_active;
-    }
-
-    const { data, error } = await supabase
-      .from('recurring_transactions')
-      .update(updateData)
-      .eq('id', id)
-      .eq('user_id', req.userId)
-      .select()
-      .single();
-
-    if (error) throw error;
-    if (!data) {
-      return res.status(404).json({ success: false, error: 'Recurring transaction not found' });
-    }
-
-    res.json({ success: true, recurring: data });
-  } catch (error) {
-    console.error('PUT /api/recurring/:id:', error);
-    res.status(500).json({ success: false, error: error.message });
-  }
-});
-
 app.delete('/api/recurring/:id', authMiddleware, async (req, res) => {
   try {
     const { id } = req.params;
@@ -791,7 +792,9 @@ app.delete('/api/recurring/:id', authMiddleware, async (req, res) => {
       .single();
 
     if (error) throw error;
-    if (!data)  return res.status(404).json({ success: false, error: 'Recurring transaction not found' });
+    if (!data) {
+      return res.status(404).json({ success: false, error: 'Recurring transaction not found' });
+    }
 
     res.json({ success: true, message: 'Recurring transaction deleted' });
   } catch (error) {
@@ -799,7 +802,6 @@ app.delete('/api/recurring/:id', authMiddleware, async (req, res) => {
     res.status(500).json({ success: false, error: error.message });
   }
 });
-
 // ==================== DASHBOARD ====================
 
 app.get('/api/dashboard/summary', authMiddleware, async (req, res) => {
