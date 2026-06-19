@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { supabase } from '../utils/supabase';
+import api from '../utils/api';
 import useAuthStore from '../store/authStore';
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, 
@@ -161,7 +161,6 @@ const SparkBar = ({ data, color }) => {
 // ─── Transaction Pill ───────────────────────────────────────────────────────
 const TxPill = ({ tx, index }) => {
   const isIncome = tx.type === 'income';
-  // Fix: parse date locally to avoid UTC shift on display
   const displayDate = parseLocalDate(tx.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
   return (
     <div
@@ -197,6 +196,7 @@ const Dashboard = () => {
   const [weeklyExpenses, setWeeklyExpenses] = useState([0, 0, 0, 0, 0, 0, 0]);
   const [weeklyIncome, setWeeklyIncome] = useState([0, 0, 0, 0, 0, 0, 0]);
   const scrollRef = useRef(null);
+  const isMounted = useRef(true);
 
   const fetchDashboardData = useCallback(async () => {
     if (!user) return;
@@ -205,72 +205,66 @@ const Dashboard = () => {
     setError(null);
 
     try {
+      // ✅ Fetch summary from dashboard endpoint
+      const summaryResponse = await api.dashboard.getSummary();
+      if (summaryResponse.success) {
+        setSummary(summaryResponse.summary);
+      }
+
+      // ✅ Fetch transactions for charts
       const now = new Date();
       const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
       const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0);
 
-      const { data: transactionsData, error: txError } = await supabase
-        .from('transactions')
-        .select('*')
-        .eq('user_id', user.id)
-        .gte('date', getLocalDateString(startOfMonth))
-        .lte('date', getLocalDateString(endOfMonth));
+      const txResponse = await api.transactions.getAll({
+        startDate: getLocalDateString(startOfMonth),
+        endDate: getLocalDateString(endOfMonth)
+      });
+      const transactionsData = txResponse.transactions || [];
+      setTransactions(transactionsData);
 
-      if (txError) throw new Error(`Transactions error: ${txError.message}`);
+      // Calculate weekly buckets from transactions
+      const expBuckets = Array(7).fill(0);
+      const incBuckets = Array(7).fill(0);
+      const today = getStartOfDay(now);
+      
+      transactionsData.forEach(t => {
+        const txDate = getStartOfDay(parseLocalDate(t.date));
+        const diffTime = today - txDate;
+        const dayOffset = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+        if (dayOffset >= 0 && dayOffset < 7) {
+          if (t.type === 'expense') expBuckets[6 - dayOffset] += t.amount;
+          else incBuckets[6 - dayOffset] += t.amount;
+        }
+      });
+      setWeeklyExpenses(expBuckets);
+      setWeeklyIncome(incBuckets);
 
-      const { data: goalsData, error: goalsError } = await supabase
-        .from('goals')
-        .select('*')
-        .eq('user_id', user.id);
+      // ✅ Fetch goals
+      const goalsResponse = await api.goals.getAll();
+      const goalsData = goalsResponse.goals || [];
+      setGoals(goalsData);
 
-      if (goalsError) throw new Error(`Goals error: ${goalsError.message}`);
+      // ✅ Fetch recent transactions (8 most recent)
+      const recentResponse = await api.transactions.getAll({ limit: 8 });
+      const recentData = recentResponse.transactions || [];
+      setRecentTransactions(recentData);
 
-      const { data: recent, error: recentError } = await supabase
-        .from('transactions')
-        .select('*')
-        .eq('user_id', user.id)
-        .order('date', { ascending: false })
-        .limit(8);
-
-      if (recentError) throw new Error(`Recent transactions error: ${recentError.message}`);
-
-      if (transactionsData) {
-        const totalIncome = transactionsData.filter(t => t.type === 'income').reduce((s, t) => s + t.amount, 0);
-        const totalExpenses = transactionsData.filter(t => t.type === 'expense').reduce((s, t) => s + t.amount, 0);
-        const balance = totalIncome - totalExpenses;
-        const savingsRate = totalIncome > 0 ? Math.round(((totalIncome - totalExpenses) / totalIncome) * 100) : 0;
-        setSummary({ totalIncome, totalExpenses, balance, savingsRate });
-        setTransactions(transactionsData);
-
-        const expBuckets = Array(7).fill(0);
-        const incBuckets = Array(7).fill(0);
-        const today = getStartOfDay(now);
-        
-        transactionsData.forEach(t => {
-          const txDate = getStartOfDay(parseLocalDate(t.date));
-          const diffTime = today - txDate;
-          const dayOffset = Math.floor(diffTime / (1000 * 60 * 60 * 24));
-          if (dayOffset >= 0 && dayOffset < 7) {
-            if (t.type === 'expense') expBuckets[6 - dayOffset] += t.amount;
-            else incBuckets[6 - dayOffset] += t.amount;
-          }
-        });
-        setWeeklyExpenses(expBuckets);
-        setWeeklyIncome(incBuckets);
-      }
-
-      if (goalsData) setGoals(goalsData);
-      if (recent) setRecentTransactions(recent);
     } catch (err) {
       console.error('Fetch error:', err);
-      setError(err.message);
+      if (isMounted.current) setError(err.message || 'Failed to load dashboard');
     } finally {
-      setLoading(false);
+      if (isMounted.current) setLoading(false);
     }
   }, [user]);
 
   useEffect(() => {
+    isMounted.current = true;
     fetchDashboardData();
+
+    return () => {
+      isMounted.current = false;
+    };
   }, [fetchDashboardData]);
 
   const name = user?.user_metadata?.name || user?.email?.split('@')[0] || 'there';
@@ -279,8 +273,6 @@ const Dashboard = () => {
   const todayDate = now.getDate();
   const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
 
-  // Fix: proper proportional widths — income bar is the reference (100% of its own width)
-  // expense bar is proportional to income
   const incomeBarWidth = summary.totalIncome > 0 ? 100 : 0;
   const expenseBarWidth = summary.totalIncome > 0
     ? Math.min(100, (summary.totalExpenses / summary.totalIncome) * 100)
@@ -383,7 +375,6 @@ const Dashboard = () => {
                 </span>
               </div>
 
-              {/* Fix: proper two-bar comparison — income always full, expense proportional */}
               <div className="space-y-3 mt-auto">
                 <div className="space-y-1.5">
                   <div className="flex justify-between items-center text-xs">
@@ -416,7 +407,7 @@ const Dashboard = () => {
             </div>
           </div>
 
-          {/* Savings ring card — fixed vertical alignment */}
+          {/* Savings ring card */}
           <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-white to-slate-100 dark:from-gray-900 dark:to-gray-950 border border-slate-200 dark:border-white/[0.07] p-8 flex flex-col">
             <p className="text-slate-500 dark:text-white/40 text-xs tracking-[0.2em] uppercase mb-6">Savings Rate</p>
             <div className="flex-1 flex flex-col items-center justify-center gap-5">
@@ -465,7 +456,6 @@ const Dashboard = () => {
           <MonthlyComparisonChart transactions={transactions} />
           <CategoryDonut transactions={transactions} />
 
-          {/* Quick Stats — now spans full width so it doesn't orphan */}
           <div className="lg:col-span-2 rounded-2xl bg-white dark:bg-gray-900/80 border border-slate-200 dark:border-white/[0.07] p-5">
             <h3 className="text-lg font-semibold text-slate-900 dark:text-white mb-4">Quick Stats</h3>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">

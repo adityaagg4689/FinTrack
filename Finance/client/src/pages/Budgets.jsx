@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { supabase } from '../utils/supabase';
+import api from '../utils/api';
 import useAuthStore from '../store/authStore';
 import BudgetCard from './BudgetCard';
 import BudgetForm from './BudgetForm';
@@ -21,8 +21,8 @@ const Budgets = () => {
   const [syncing, setSyncing] = useState(false);
   const syncCounterRef = useRef(0);
   const syncTimeoutRef = useRef(null);
+  const isMounted = useRef(true);
   
-  // Stable current month/year using useMemo (prevents midnight rollover issues)
   const currentDate = useMemo(() => new Date(), []);
   const currentMonth = currentDate.getMonth() + 1;
   const currentYear = currentDate.getFullYear();
@@ -33,49 +33,6 @@ const Budgets = () => {
   ];
   const currentMonthName = months[currentMonth - 1];
 
-  const calculateSpending = useCallback(async (budgetsList) => {
-    if (!budgetsList.length) return budgetsList;
-    const startDate = `${currentYear}-${String(currentMonth).padStart(2, '0')}-01`;
-    const endDate = new Date(currentYear, currentMonth, 0).toISOString().split('T')[0];
-
-    const { data: transactions, error: txError } = await supabase
-      .from('transactions')
-      .select('amount, category, type, date')
-      .eq('user_id', user.id)
-      .eq('type', 'expense')
-      .gte('date', startDate)
-      .lte('date', endDate);
-
-    if (txError) {
-      console.error('Error fetching transactions:', txError);
-      return budgetsList;
-    }
-
-    const spendingMap = new Map();
-    transactions?.forEach(tx => {
-      // Security: Ensure amount is positive (prevent negative expense exploits)
-      const safeAmount = Math.abs(tx.amount);
-      const currentAmount = spendingMap.get(tx.category) || 0;
-      spendingMap.set(tx.category, currentAmount + safeAmount);
-    });
-
-    return budgetsList.map(budget => {
-      const spent = spendingMap.get(budget.category) || 0;
-      const percentage = budget.amount > 0 ? (spent / budget.amount) * 100 : 0;
-      const remaining = Math.max(0, budget.amount - spent);
-      const overspent = Math.max(0, spent - budget.amount);
-
-      return {
-        ...budget,
-        spent,
-        remaining,
-        overspent,
-        percentage: Math.min(percentage, 100),
-        status: percentage >= 100 ? 'overspent' : percentage >= 80 ? 'warning' : 'good'
-      };
-    });
-  }, [user, currentMonth, currentYear]);
-
   const fetchBudgets = useCallback(async () => {
     if (!user) return;
 
@@ -83,126 +40,111 @@ const Budgets = () => {
     setError('');
 
     try {
-      const { data: budgetsData, error: budgetsError } = await supabase
-        .from('budgets')
-        .select('*')
-        .eq('user_id', user.id)
-        .eq('month', currentMonth)
-        .eq('year', currentYear);
+      // ✅ Fetch budgets from backend
+      const response = await api.budgets.getAll({
+        month: currentMonth,
+        year: currentYear
+      });
+      
+      const budgetsData = response.budgets || [];
 
-      if (budgetsError) throw budgetsError;
-
-      if (budgetsData && budgetsData.length > 0) {
-        const budgetsWithSpending = await calculateSpending(budgetsData);
-        setBudgets(budgetsWithSpending);
-      } else {
-        setBudgets([]);
+      if (isMounted.current) {
+        setBudgets(budgetsData);
       }
     } catch (err) {
       console.error('Fetch budgets error:', err);
-      setError(err.message);
+      if (isMounted.current) setError(err.message || 'Failed to fetch budgets');
     } finally {
-      setLoading(false);
+      if (isMounted.current) setLoading(false);
     }
-  }, [user, currentMonth, currentYear, calculateSpending]);
+  }, [user, currentMonth, currentYear]);
 
   // Real-time subscription with proper sync indicator handling
   useEffect(() => {
     if (!user) return;
+    isMounted.current = true;
     fetchBudgets();
 
-    const subscription = supabase
-      .channel('budgets-transactions-changes')
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'transactions',
-          filter: `user_id=eq.${user.id}`
-        },
-        () => {
-          fetchBudgets();
-          
-          // Cancel previous timeout to prevent race condition
-          if (syncTimeoutRef.current) {
-            clearTimeout(syncTimeoutRef.current);
-          }
-          
-          syncCounterRef.current += 1;
-          setSyncing(true);
-          
-          syncTimeoutRef.current = setTimeout(() => {
-            syncCounterRef.current -= 1;
-            if (syncCounterRef.current === 0) {
-              setSyncing(false);
-            }
-          }, 1500);
-        }
-      )
-      .subscribe();
+    // Note: Real-time subscriptions are handled by the backend
+    // The backend already has the necessary logic for budget calculations
+    // We just need to refresh periodically or when user interacts
 
     return () => {
-      subscription.unsubscribe();
+      isMounted.current = false;
       if (syncTimeoutRef.current) {
         clearTimeout(syncTimeoutRef.current);
       }
     };
   }, [user, fetchBudgets]);
 
-  // Security: Only destructure expected fields (prevent injection)
   const handleCreateBudget = async ({ category, amount }) => {
-    const { error } = await supabase
-      .from('budgets')
-      .insert([{
+    try {
+      const response = await api.budgets.create({
         category,
         amount,
-        user_id: user.id,
         month: currentMonth,
         year: currentYear
-      }]);
+      });
 
-    if (error) throw error;
-    setShowForm(false);
-    fetchBudgets();
+      if (response.success) {
+        setShowForm(false);
+        fetchBudgets();
+      } else {
+        throw new Error(response.error || 'Failed to create budget');
+      }
+    } catch (err) {
+      console.error('Create error:', err);
+      throw err;
+    }
   };
 
   const handleUpdateBudget = async ({ amount }) => {
-    const { error } = await supabase
-      .from('budgets')
-      .update({ amount })
-      .eq('id', editingBudget.id)
-      .eq('user_id', user.id);
+    try {
+      const response = await api.budgets.update(editingBudget.id, {
+        category: editingBudget.category,
+        amount,
+        month: editingBudget.month,
+        year: editingBudget.year
+      });
 
-    if (error) throw error;
-    setEditingBudget(null);
-    fetchBudgets();
+      if (response.success) {
+        setEditingBudget(null);
+        fetchBudgets();
+      } else {
+        throw new Error(response.error || 'Failed to update budget');
+      }
+    } catch (err) {
+      console.error('Update error:', err);
+      throw err;
+    }
   };
 
-  // Add confirmation before delete
   const handleDeleteBudget = async (id) => {
     const confirmed = window.confirm('Are you sure you want to delete this budget? This action cannot be undone.');
     if (!confirmed) return;
     
-    const { error } = await supabase
-      .from('budgets')
-      .delete()
-      .eq('id', id)
-      .eq('user_id', user.id);
+    setError('');
+    try {
+      const response = await api.budgets.delete(id);
 
-    if (error) throw error;
-    fetchBudgets();
+      if (response.success) {
+        fetchBudgets();
+      } else {
+        setError(response.error || 'Failed to delete budget');
+      }
+    } catch (err) {
+      console.error('Delete error:', err);
+      setError(err.message || 'Failed to delete budget');
+    }
   };
 
-  // Fixed summary calculations
   const summary = useMemo(() => {
     const totalBudget = budgets.reduce((sum, b) => sum + b.amount, 0);
-    const totalSpent = budgets.reduce((sum, b) => sum + b.spent, 0);
-    // Fixed: totalRemaining should be based on total budget minus total spent, not sum of clamped remaining values
+    const totalSpent = budgets.reduce((sum, b) => sum + (b.spent || 0), 0);
     const totalRemaining = Math.max(0, totalBudget - totalSpent);
-    const overspentCategories = budgets.filter(b => b.status === 'overspent').length;
-    const warningCategories = budgets.filter(b => b.status === 'warning').length;
-    const onTrackCategories = budgets.filter(b => b.status === 'good').length;
+    const overspentCategories = budgets.filter(b => b.isOverBudget || b.percentage >= 100).length;
+    const warningCategories = budgets.filter(b => b.percentage >= 80 && b.percentage < 100).length;
+    const onTrackCategories = budgets.filter(b => b.percentage < 80).length;
 
     return {
       totalBudget,

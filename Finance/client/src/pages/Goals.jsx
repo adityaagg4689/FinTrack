@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { supabase } from '../utils/supabase';
+import api from '../utils/api';
 import useAuthStore from '../store/authStore';
 import GoalCard from './GoalCard';
 import GoalForm from './GoalForm';
@@ -22,6 +22,7 @@ const Goals = () => {
   const [activeFilter, setActiveFilter] = useState('all');
   const [optimisticUpdate, setOptimisticUpdate] = useState(false);
   const progressTimeoutRef = useRef(null);
+  const isMounted = useRef(true);
 
   // Helper to calculate goal progress
   const calculateGoalProgress = useCallback((goal) => {
@@ -81,7 +82,7 @@ const Goals = () => {
     };
   }, []);
 
-  // Fetch goals from Supabase
+  // Fetch goals from backend
   const fetchGoals = useCallback(async () => {
     if (!user) return;
 
@@ -89,95 +90,82 @@ const Goals = () => {
     setError('');
 
     try {
-      const { data, error: fetchError } = await supabase
-        .from('goals')
-        .select('*')
-        .eq('user_id', user.id)
-        .order('deadline', { ascending: true });
+      const response = await api.goals.getAll();
+      const data = response.goals || [];
 
-      if (fetchError) throw fetchError;
-
-      const goalsWithProgress = (data || []).map(goal => ({
+      const goalsWithProgress = data.map(goal => ({
         ...goal,
         ...calculateGoalProgress(goal)
       }));
 
-      setGoals(goalsWithProgress);
+      if (isMounted.current) {
+        setGoals(goalsWithProgress);
+      }
     } catch (err) {
-      setError(err.message);
+      if (isMounted.current) {
+        setError(err.message || 'Failed to fetch goals');
+      }
     } finally {
-      setLoading(false);
+      if (isMounted.current) {
+        setLoading(false);
+      }
     }
   }, [user, calculateGoalProgress]);
 
   useEffect(() => {
+    isMounted.current = true;
     fetchGoals();
+
+    return () => {
+      isMounted.current = false;
+    };
   }, [fetchGoals]);
 
-  // Real-time subscription for goal changes
-  useEffect(() => {
-    if (!user) return;
-
-    const subscription = supabase
-      .channel('goals-changes')
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'goals',
-          filter: `user_id=eq.${user.id}`
-        },
-        () => {
-          fetchGoals();
-        }
-      )
-      .subscribe();
-
-    return () => subscription.unsubscribe();
-  }, [user, fetchGoals]);
-
-  // Security: Explicitly destructure only expected fields
   const handleCreateGoal = async ({ name, target_amount, deadline }) => {
-    const { error: insertError } = await supabase
-      .from('goals')
-      .insert([{
-        name,
-        target_amount,
-        deadline,
-        user_id: user.id,
-        current_amount: 0
-      }]);
-
-    if (insertError) throw insertError;
-    setShowForm(false);
-    fetchGoals();
-  };
-
-  // Security: Explicitly destructure only expected fields
-  const handleUpdateGoal = async ({ name, target_amount, deadline }) => {
-    const { error: updateError } = await supabase
-      .from('goals')
-      .update({
+    try {
+      const response = await api.goals.create({
         name,
         target_amount,
         deadline
-      })
-      .eq('id', editingGoal.id)
-      .eq('user_id', user.id);
+      });
 
-    if (updateError) throw updateError;
-    setEditingGoal(null);
-    fetchGoals();
+      if (response.success) {
+        setShowForm(false);
+        fetchGoals();
+      } else {
+        throw new Error(response.error || 'Failed to create goal');
+      }
+    } catch (err) {
+      console.error('Create error:', err);
+      throw err;
+    }
   };
 
-  // Add progress to goal with optimistic update and proper validation
+  const handleUpdateGoal = async ({ name, target_amount, deadline }) => {
+    try {
+      const response = await api.goals.update(editingGoal.id, {
+        name,
+        target_amount,
+        deadline
+      });
+
+      if (response.success) {
+        setEditingGoal(null);
+        fetchGoals();
+      } else {
+        throw new Error(response.error || 'Failed to update goal');
+      }
+    } catch (err) {
+      console.error('Update error:', err);
+      throw err;
+    }
+  };
+
   const handleAddProgress = async () => {
     if (!selectedGoal || !progressAmount) return;
 
     const amount = parseFloat(progressAmount);
     
-    // Validate amount
     if (isNaN(amount) || amount <= 0) {
       alert('Please enter a valid positive amount');
       return;
@@ -191,7 +179,6 @@ const Goals = () => {
 
     const newAmount = selectedGoal.current_amount + amount;
 
-    // Optimistic update
     setOptimisticUpdate(true);
     const previousGoals = [...goals];
     
@@ -201,7 +188,6 @@ const Goals = () => {
         : g
     ));
 
-    // Clear modal and timeout
     if (progressTimeoutRef.current) {
       clearTimeout(progressTimeoutRef.current);
     }
@@ -210,38 +196,38 @@ const Goals = () => {
     setProgressAmount('');
     setSelectedGoal(null);
 
-    // Actual API call
-    const { error: updateError } = await supabase
-      .from('goals')
-      .update({ current_amount: newAmount })
-      .eq('id', selectedGoal.id)
-      .eq('user_id', user.id);
+    try {
+      const response = await api.goals.addProgress(selectedGoal.id, amount);
 
-    if (updateError) {
+      if (!response.success) {
+        setGoals(previousGoals);
+        alert('Error updating progress: ' + (response.error || 'Unknown error'));
+      }
+    } catch (err) {
       setGoals(previousGoals);
-      alert('Error updating progress: ' + updateError.message);
+      alert('Error updating progress: ' + err.message);
     }
     
     setOptimisticUpdate(false);
   };
 
-  // Delete goal with confirmation and explicit user_id check
   const handleDeleteGoal = async (id) => {
-    const { error: deleteError } = await supabase
-      .from('goals')
-      .delete()
-      .eq('id', id)
-      .eq('user_id', user.id);
+    setError('');
+    try {
+      const response = await api.goals.delete(id);
 
-    if (!deleteError) {
-      setShowDeleteConfirm(null);
-      fetchGoals();
-    } else {
-      alert('Error deleting goal: ' + deleteError.message);
+      if (response.success) {
+        setShowDeleteConfirm(null);
+        fetchGoals();
+      } else {
+        setError(response.error || 'Failed to delete goal');
+      }
+    } catch (err) {
+      console.error('Delete error:', err);
+      setError(err.message || 'Failed to delete goal');
     }
   };
 
-  // Filter goals
   const filteredGoals = goals.filter(goal => {
     if (activeFilter === 'active') return !goal.isAchieved && !goal.isOverdue;
     if (activeFilter === 'achieved') return goal.isAchieved;
@@ -249,7 +235,6 @@ const Goals = () => {
     return true;
   });
 
-  // Calculate total savings stats with safe division
   const totalSaved = goals.reduce((sum, g) => sum + g.current_amount, 0);
   const totalTarget = goals.reduce((sum, g) => sum + g.target_amount, 0);
   const activeGoals = goals.filter(g => !g.isAchieved).length;
@@ -312,7 +297,7 @@ const Goals = () => {
           </div>
         </div>
 
-        {/* Stats Overview - Dashboard style */}
+        {/* Stats Overview */}
         <div className="anim-2 grid grid-cols-2 lg:grid-cols-4 gap-4">
           <div className="rounded-2xl bg-white dark:bg-gray-900/80 border border-slate-200 dark:border-white/[0.07] p-5 hover:border-slate-300 dark:hover:border-white/20 transition-all">
             <div className="flex items-center gap-2 mb-2">
@@ -351,7 +336,7 @@ const Goals = () => {
           </div>
         </div>
 
-        {/* Filter Tabs - Dashboard style */}
+        {/* Filter Tabs */}
         <div className="anim-3 flex gap-2 flex-wrap">
           {[
             { id: 'all', label: 'All Goals', icon: '📋' },

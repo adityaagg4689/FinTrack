@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { supabase } from '../utils/supabase';
+import api from '../utils/api';
 import useAuthStore from '../store/authStore';
 import RecurringForm from './RecurringForm';
 import ConfirmModal from './ConfirmModal';
@@ -12,14 +12,10 @@ const getLocalDateString = (date) => {
   return `${year}-${month}-${day}`;
 };
 
-
-// Debounce utility
-const debounce = (func, wait) => {
-  let timeout;
-  return (...args) => {
-    clearTimeout(timeout);
-    timeout = setTimeout(() => func(...args), wait);
-  };
+// Helper: Parse YYYY-MM-DD without UTC shift
+const parseLocalDate = (dateStr) => {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  return new Date(y, m - 1, d);
 };
 
 const formatCurrency = (amount) => `₹${Math.round(Math.abs(amount)).toLocaleString('en-IN')}`;
@@ -36,24 +32,26 @@ const Recurring = () => {
   const [filter, setFilter] = useState('all');
   const [refreshTrigger, setRefreshTrigger] = useState(0);
   const isMounted = useRef(true);
-  const syncTimeoutRef = useRef(null);
-  const syncCounterRef = useRef(0);
+  const debounceTimerRef = useRef(null);
 
-  // Debounced refresh to avoid multiple DB calls
-  const debouncedRefresh = useCallback(
-    debounce(() => {
+  // Debounced refresh - fixed with useRef
+  const debouncedRefresh = useCallback(() => {
+    if (debounceTimerRef.current) {
+      clearTimeout(debounceTimerRef.current);
+    }
+    debounceTimerRef.current = setTimeout(() => {
       if (isMounted.current) {
         setRefreshTrigger(prev => prev + 1);
       }
-    }, 300),
-    []
-  );
+    }, 300);
+  }, []);
 
   // Calculate accurate monthly amount from frequency
   const calculateMonthlyAmount = (amount, frequency) => {
     if (frequency === 'monthly') return amount;
     if (frequency === 'weekly') return amount * 52 / 12;
     if (frequency === 'yearly') return amount / 12;
+    if (frequency === 'daily') return amount * 365 / 12;
     return amount;
   };
 
@@ -62,21 +60,16 @@ const Recurring = () => {
     if (!user) return;
 
     try {
-      const { data, error: fetchError } = await supabase
-        .from('recurring_transactions')
-        .select('id, name, amount, type, category, frequency, next_due_date, is_active, created_at')
-        .eq('user_id', user.id)
-        .order('next_due_date', { ascending: true });
-
-      if (fetchError) throw fetchError;
+      const response = await api.recurring.getAll();
+      const data = response.recurring || [];
 
       if (isMounted.current) {
-        setRecurringItems(data || []);
+        setRecurringItems(data);
         setError('');
       }
     } catch (err) {
       console.error('Fetch recurring error:', err);
-      if (isMounted.current) setError(err.message);
+      if (isMounted.current) setError(err.message || 'Failed to fetch recurring transactions');
     } finally {
       if (isMounted.current) setLoading(false);
     }
@@ -87,24 +80,12 @@ const Recurring = () => {
     if (!user) return;
 
     try {
-      const today = getLocalDateString(new Date());
-      const thirtyDaysLater = new Date();
-      thirtyDaysLater.setDate(thirtyDaysLater.getDate() + 30);
-      const thirtyDaysLaterStr = getLocalDateString(thirtyDaysLater);
+      const response = await api.recurring.getUpcoming();
+      const data = response.upcomingBills || [];
 
-      const { data, error: fetchError } = await supabase
-        .from('recurring_transactions')
-        .select('id, name, amount, type, category, frequency, next_due_date')
-        .eq('user_id', user.id)
-        .eq('is_active', true)
-        .gte('next_due_date', today)
-        .lte('next_due_date', thirtyDaysLaterStr)
-        .order('next_due_date', { ascending: true });
-
-      if (fetchError) throw fetchError;
-
-      const transactionsWithDays = (data || []).map(transaction => {
-        const dueDate = new Date(transaction.next_due_date);
+      // Fix: Parse dates with parseLocalDate for correct IST display
+      const transactionsWithDays = data.map(transaction => {
+        const dueDate = parseLocalDate(transaction.next_due_date);
         const todayDate = new Date();
         todayDate.setHours(0, 0, 0, 0);
         dueDate.setHours(0, 0, 0, 0);
@@ -122,151 +103,111 @@ const Recurring = () => {
 
   // Combined data fetch
   const loadAllData = useCallback(async () => {
+    if (!isMounted.current) return;
     setLoading(true);
     await Promise.all([fetchRecurring(), fetchUpcomingTransactions()]);
-    setLoading(false);
+    if (isMounted.current) {
+      setLoading(false);
+    }
   }, [fetchRecurring, fetchUpcomingTransactions]);
 
+  // Fixed: Only run on mount and refreshTrigger changes
   useEffect(() => {
     isMounted.current = true;
     loadAllData();
 
     return () => {
       isMounted.current = false;
-      if (syncTimeoutRef.current) {
-        clearTimeout(syncTimeoutRef.current);
+      if (debounceTimerRef.current) {
+        clearTimeout(debounceTimerRef.current);
       }
     };
   }, [loadAllData, refreshTrigger]);
 
-  // Real-time subscription
-  useEffect(() => {
-    if (!user) return;
-
-    const subscription = supabase
-      .channel('recurring-changes')
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'recurring_transactions',
-          filter: `user_id=eq.${user.id}`
-        },
-        () => {
-          debouncedRefresh();
-          
-          if (syncTimeoutRef.current) {
-            clearTimeout(syncTimeoutRef.current);
-          }
-          syncCounterRef.current += 1;
-          
-          syncTimeoutRef.current = setTimeout(() => {
-            syncCounterRef.current -= 1;
-            if (syncCounterRef.current === 0) {
-              // Sync complete
-            }
-          }, 1500);
-        }
-      )
-      .subscribe();
-
-    return () => {
-      subscription.unsubscribe();
-      if (syncTimeoutRef.current) {
-        clearTimeout(syncTimeoutRef.current);
-      }
-    };
-  }, [user, debouncedRefresh]);
-
-  // Security: Only destructure expected fields
   const handleCreate = async ({ name, amount, type, category, frequency, next_due_date }) => {
-    const { data: existing } = await supabase
-      .from('recurring_transactions')
-      .select('id')
-      .eq('user_id', user.id)
-      .ilike('name', name)
-      .maybeSingle();
-
-    if (existing) {
-      throw new Error(`A recurring transaction named "${name}" already exists. Please use a different name.`);
-    }
-
-    const nextDueDate = next_due_date || getLocalDateString(new Date());
-
-    const { error: insertError } = await supabase
-      .from('recurring_transactions')
-      .insert([{
+    try {
+      const response = await api.recurring.create({
         name,
         amount,
         type,
         category,
         frequency,
-        next_due_date: nextDueDate,
-        user_id: user.id,
-        is_active: true
-      }]);
+        next_due_date: next_due_date || getLocalDateString(new Date())
+      });
 
-    if (insertError) throw insertError;
-    
-    setShowForm(false);
-    debouncedRefresh();
+      if (response.success) {
+        setShowForm(false);
+        debouncedRefresh();
+      } else {
+        throw new Error(response.error || 'Failed to create recurring transaction');
+      }
+    } catch (err) {
+      console.error('Create error:', err);
+      throw err;
+    }
   };
 
   const handleUpdate = async ({ name, amount, type, category, frequency, next_due_date }) => {
-    const { data: existing } = await supabase
-      .from('recurring_transactions')
-      .select('id')
-      .eq('user_id', user.id)
-      .ilike('name', name)
-      .neq('id', editingItem.id)
-      .maybeSingle();
-
-    if (existing) {
-      throw new Error(`A recurring transaction named "${name}" already exists. Please use a different name.`);
-    }
-
-    const { error: updateError } = await supabase
-      .from('recurring_transactions')
-      .update({
+    try {
+      const response = await api.recurring.update(editingItem.id, {
         name,
         amount,
         type,
         category,
         frequency,
         next_due_date
-      })
-      .eq('id', editingItem.id)
-      .eq('user_id', user.id);
+      });
 
-    if (updateError) throw updateError;
-    
-    setEditingItem(null);
-    debouncedRefresh();
+      if (response.success) {
+        setEditingItem(null);
+        debouncedRefresh();
+      } else {
+        throw new Error(response.error || 'Failed to update recurring transaction');
+      }
+    } catch (err) {
+      console.error('Update error:', err);
+      throw err;
+    }
   };
 
   const handleToggleStatus = async (id, currentStatus) => {
-    const { error: updateError } = await supabase
-      .from('recurring_transactions')
-      .update({ is_active: !currentStatus })
-      .eq('id', id)
-      .eq('user_id', user.id);
+    try {
+      const item = recurringItems.find(i => i.id === id);
+      if (!item) return;
 
-    if (!updateError) {
-      debouncedRefresh();
+      const response = await api.recurring.update(id, {
+        name: item.name,
+        amount: item.amount,
+        type: item.type,
+        category: item.category,
+        frequency: item.frequency,
+        next_due_date: item.next_due_date,
+        is_active: !currentStatus
+      });
+
+      if (response.success) {
+        debouncedRefresh();
+      }
+    } catch (err) {
+      console.error('Toggle status error:', err);
+      setError(err.message || 'Failed to update status');
     }
   };
 
   const handleDelete = async (id) => {
-    const { error: deleteError } = await supabase
-      .from('recurring_transactions')
-      .delete()
-      .eq('id', id)
-      .eq('user_id', user.id);
+    setError('');
+    try {
+      const response = await api.recurring.delete(id);
 
-    if (!deleteError) {
-      setDeleteConfirm(null);
-      debouncedRefresh();
+      if (response.success) {
+        setDeleteConfirm(null);
+        debouncedRefresh();
+      } else {
+        setError(response.error || 'Failed to delete recurring transaction');
+      }
+    } catch (err) {
+      console.error('Delete error:', err);
+      setError(err.message || 'Failed to delete recurring transaction');
     }
   };
 
@@ -400,7 +341,11 @@ const Recurring = () => {
                   <div className="flex items-center gap-1">
                     <span className="text-sm">📅</span>
                     <span className="text-sm text-slate-600 dark:text-white/60">
-                      {new Date(transaction.next_due_date).toLocaleDateString()}
+                      {parseLocalDate(transaction.next_due_date).toLocaleDateString('en-IN', {
+                        day: 'numeric',
+                        month: 'short',
+                        year: 'numeric'
+                      })}
                     </span>
                   </div>
                   <div className={`px-2 py-0.5 rounded-full text-xs font-medium ${
@@ -529,7 +474,11 @@ const Recurring = () => {
                       {item.type === 'income' ? '+' : '-'} {formatCurrency(item.amount)}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-center text-slate-600 dark:text-white/60">
-                      {new Date(item.next_due_date).toLocaleDateString()}
+                      {parseLocalDate(item.next_due_date).toLocaleDateString('en-IN', {
+                        day: 'numeric',
+                        month: 'short',
+                        year: 'numeric'
+                      })}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-center">
                       <button

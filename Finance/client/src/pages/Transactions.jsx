@@ -1,7 +1,7 @@
-import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import TransactionForm from './TransactionForm';
 import TransactionRow from './TransactionRow';
-import { supabase } from '../utils/supabase';
+import api from '../utils/api';
 import useAuthStore from '../store/authStore';
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, 
@@ -9,7 +9,6 @@ import {
   Legend
 } from 'recharts';
 
-// Helper: Get local date string
 const getLocalDateString = (date) => {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, '0');
@@ -17,7 +16,6 @@ const getLocalDateString = (date) => {
   return `${year}-${month}-${day}`;
 };
 
-// Helper: Parse YYYY-MM-DD without UTC shift
 const parseLocalDate = (dateStr) => {
   const [y, m, d] = dateStr.split('-').map(Number);
   return new Date(y, m - 1, d);
@@ -39,7 +37,6 @@ const useDebounce = (value, delay = 300) => {
   return dv;
 };
 
-// Shared category spending computation — computed once, passed to both charts
 const useCategorySpending = (transactions) => {
   return useMemo(() => {
     const map = new Map();
@@ -52,7 +49,6 @@ const useCategorySpending = (transactions) => {
   }, [transactions]);
 };
 
-// ─── Graph 1: Category Spending - Horizontal Bar Chart ──────────────────────
 const CategorySpendingChart = ({ data }) => {
   if (!data || data.length === 0) return null;
 
@@ -79,7 +75,6 @@ const CategorySpendingChart = ({ data }) => {
   );
 };
 
-// ─── Graph 2: Category Donut Chart ──────────────────────────────────────────
 const CategoryDonut = ({ data }) => {
   const COLORS = ['#f87171', '#fb923c', '#fbbf24', '#34d399', '#60a5fa', '#a78bfa'];
 
@@ -105,7 +100,6 @@ const CategoryDonut = ({ data }) => {
   );
 };
 
-// ─── Graph 3: Monthly Summary Bar Chart ─────────────────────────────────────
 const MonthlySummaryChart = ({ transactions }) => {
   const monthlyData = useMemo(() => {
     const map = new Map();
@@ -117,7 +111,6 @@ const MonthlySummaryChart = ({ transactions }) => {
       const year = month.getFullYear();
       const monthNum = month.getMonth() + 1;
       
-      // Fix: use parseLocalDate to avoid UTC shift in month bucketing
       const monthTransactions = transactions.filter(t => {
         const d = parseLocalDate(t.date);
         return d.getMonth() + 1 === monthNum && d.getFullYear() === year;
@@ -154,7 +147,6 @@ const MonthlySummaryChart = ({ transactions }) => {
   );
 };
 
-// ─── CSV Export Helper ───────────────────────────────────────────────────────
 const exportCSV = (transactions) => {
   const rows = [['Date', 'Type', 'Category', 'Amount', 'Note']];
   transactions.forEach(t => rows.push([t.date, t.type, t.category, t.amount, t.note || '']));
@@ -187,7 +179,6 @@ const Transactions = () => {
 
   const categorySpendingData = useCategorySpending(transactions);
 
-  // Fix: proper stale-closure guard using a ref, not a returned cleanup
   const fetchTransactions = useCallback(async () => {
     if (!user) return;
     
@@ -197,27 +188,21 @@ const Transactions = () => {
     try {
       const threeMonthsAgo = new Date();
       threeMonthsAgo.setMonth(threeMonthsAgo.getMonth() - 3);
-      
-      const { data, error: fetchError } = await supabase
-        .from('transactions')
-        .select('*')
-        .eq('user_id', user.id)
-        .gte('date', getLocalDateString(threeMonthsAgo))
-        .order('date', { ascending: false })
-        .limit(500);
+      const startDate = getLocalDateString(threeMonthsAgo);
 
-      if (fetchError) throw fetchError;
-
-      setTransactions(data || []);
+      const response = await api.transactions.getAll({ startDate });
+      const data = response.transactions || [];
+      setTransactions(data);
       
-      const totalIncome = (data || []).filter(t => t.type === 'income').reduce((s, t) => s + t.amount, 0);
-      const totalExpenses = (data || []).filter(t => t.type === 'expense').reduce((s, t) => s + t.amount, 0);
+      const totalIncome = data.filter(t => t.type === 'income').reduce((s, t) => s + t.amount, 0);
+      const totalExpenses = data.filter(t => t.type === 'expense').reduce((s, t) => s + t.amount, 0);
       const balance = totalIncome - totalExpenses;
       const savingsRate = totalIncome > 0 ? Math.round(((totalIncome - totalExpenses) / totalIncome) * 100) : 0;
       
       setSummary({ totalIncome, totalExpenses, balance, savingsRate });
     } catch (err) {
-      setError(err.message);
+      console.error('Fetch error:', err);
+      setError(err.message || 'Failed to fetch transactions');
     } finally {
       setLoading(false);
     }
@@ -270,10 +255,12 @@ const Transactions = () => {
 
   const formatDateGroup = (dateStr) => {
     const today = getLocalDateString(new Date());
-    const yesterday = getLocalDateString(new Date(Date.now() - 86400000));
+    const y = new Date();
+    y.setDate(y.getDate() - 1);
+    const yesterday = getLocalDateString(y);
+    
     if (dateStr === today) return 'Today';
     if (dateStr === yesterday) return 'Yesterday';
-    // Fix: use parseLocalDate to avoid UTC shift on date headers
     return parseLocalDate(dateStr).toLocaleDateString('en-IN', { 
       weekday: 'short', 
       day: 'numeric', 
@@ -309,60 +296,80 @@ const Transactions = () => {
   };
 
   const handleCreate = async ({ type, category, amount, date, note }) => {
-    const { error: insertError } = await supabase
-      .from('transactions')
-      .insert([{ type, category, amount, date, note: note || null, user_id: user.id }]);
-    
-    if (insertError) throw new Error(insertError.message);
-    setShowForm(false);
-    fetchTransactions();
-    setPage(1);
+    try {
+      await api.transactions.create({
+        type,
+        category,
+        amount,
+        date,
+        note: note || null
+      });
+      
+      setShowForm(false);
+      await fetchTransactions();
+      setPage(1);
+    } catch (err) {
+      console.error('Create error:', err);
+      setError(err.message || 'Failed to create transaction');
+      throw err;
+    }
   };
 
   const handleUpdate = async (formData) => {
+    setError(''); // Clear error on retry
     const { type, category, amount, date, note } = formData;
-    const { error: updateError } = await supabase
-      .from('transactions')
-      .update({ type, category, amount, date, note: note || null })
-      .eq('id', editingTx.id)
-      .eq('user_id', user.id);
-
-    if (updateError) throw new Error(updateError.message);
-    setEditingTx(null);
-    fetchTransactions();
+    try {
+      await api.transactions.update(editingTx.id, {
+        type,
+        category,
+        amount,
+        date,
+        note: note || null
+      });
+      
+      setEditingTx(null);
+      await fetchTransactions();
+    } catch (err) {
+      console.error('Update error:', err);
+      setError(err.message || 'Failed to update transaction');
+      throw err;
+    }
   };
 
   const handleDelete = async (id) => {
-    const { error: deleteError } = await supabase
-      .from('transactions')
-      .delete()
-      .eq('id', id)
-      .eq('user_id', user.id);
-
-    if (deleteError) throw new Error(deleteError.message);
-    setDeleteConfirm(null);
-    fetchTransactions();
+    setError(''); // Clear error on retry
+    try {
+      await api.transactions.delete(id);
+      
+      // Remove ID from selectedIds if present
+      setSelectedIds(prev => {
+        const s = new Set(prev);
+        s.delete(id);
+        return s;
+      });
+      setShowSelectAllPrompt(false); // Clear stale prompt
+      setDeleteConfirm(null);
+      await fetchTransactions();
+    } catch (err) {
+      console.error('Delete error:', err);
+      setError(err.message || 'Failed to delete transaction');
+    }
   };
 
   const handleBulkDelete = async () => {
-    const { error: deleteError } = await supabase
-      .from('transactions')
-      .delete()
-      .in('id', [...selectedIds])
-      .eq('user_id', user.id);
-
-    if (deleteError) {
-      setError(deleteError.message);
-      return;
+    try {
+      await api.transactions.deleteBulk([...selectedIds]);
+      
+      setSelectedIds(new Set());
+      setBulkDeleteConfirm(false);
+      setShowSelectAllPrompt(false);
+      await fetchTransactions();
+    } catch (err) {
+      console.error('Bulk delete error:', err);
+      setError(err.message || 'Failed to delete transactions');
     }
-    
-    setSelectedIds(new Set());
-    setBulkDeleteConfirm(false);
-    setShowSelectAllPrompt(false);
-    fetchTransactions();
   };
 
-  // Fix: safe max — returns 0 instead of -Infinity when array is empty
   const expenseAmounts = transactions.filter(t => t.type === 'expense').map(t => t.amount);
   const incomeAmounts = transactions.filter(t => t.type === 'income').map(t => t.amount);
   const largestExpense = expenseAmounts.length > 0 ? Math.max(...expenseAmounts) : 0;
@@ -373,7 +380,6 @@ const Transactions = () => {
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 dark:from-gray-950 dark:to-gray-900">
       <div className="max-w-6xl mx-auto px-4 md:px-8 py-8 space-y-6">
         
-        {/* Header */}
         <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
           <div>
             <p className="text-slate-500 dark:text-white/30 text-xs tracking-[0.2em] uppercase mb-1">
@@ -400,7 +406,6 @@ const Transactions = () => {
           </div>
         </div>
 
-        {/* Summary Cards */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           {[
             { label: 'Income', value: formatCurrency(summary.totalIncome), color: 'text-emerald-400', bg: 'bg-emerald-500/10 border-emerald-500/20', icon: '💰' },
@@ -418,14 +423,12 @@ const Transactions = () => {
           ))}
         </div>
 
-        {/* Graphs Section */}
         {!loading && transactions.length > 0 && (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <CategorySpendingChart data={categorySpendingData} />
             <CategoryDonut data={categorySpendingData} />
             <MonthlySummaryChart transactions={transactions} />
             
-            {/* Transaction Insights */}
             <div className="rounded-2xl bg-white dark:bg-gray-900/80 border border-slate-200 dark:border-white/[0.07] p-5">
               <h3 className="text-lg font-semibold text-slate-900 dark:text-white mb-4">Transaction Insights</h3>
               <div className="space-y-3">
@@ -435,14 +438,12 @@ const Transactions = () => {
                 </div>
                 <div className="flex justify-between items-center p-3 bg-rose-50 dark:bg-rose-500/10 rounded-xl border border-rose-100 dark:border-rose-500/20">
                   <span className="text-sm font-medium text-rose-700 dark:text-rose-300">Largest Expense</span>
-                  {/* Fix: safe — shows ₹0 instead of ₹-Infinity when no expenses */}
                   <span className="font-bold text-rose-600 dark:text-rose-400 text-lg">
                     {formatCurrency(largestExpense)}
                   </span>
                 </div>
                 <div className="flex justify-between items-center p-3 bg-emerald-50 dark:bg-emerald-500/10 rounded-xl border border-emerald-100 dark:border-emerald-500/20">
                   <span className="text-sm font-medium text-emerald-700 dark:text-emerald-300">Largest Income</span>
-                  {/* Fix: safe — shows ₹0 instead of ₹-Infinity when no income */}
                   <span className="font-bold text-emerald-600 dark:text-emerald-400 text-lg">
                     {formatCurrency(largestIncome)}
                   </span>
@@ -476,7 +477,6 @@ const Transactions = () => {
           </div>
         )}
 
-        {/* Filters Bar */}
         <div className="flex flex-wrap gap-3 items-center">
           <div className="flex gap-1 bg-white/70 dark:bg-white/[0.03] border border-slate-200 dark:border-white/[0.07] rounded-xl p-1">
             {['all', 'income', 'expense'].map(f => (
@@ -521,7 +521,6 @@ const Transactions = () => {
           )}
         </div>
 
-        {/* Select All Prompt — Gmail-style */}
         {showSelectAllPrompt && (
           <div className="bg-blue-500/10 border border-blue-500/20 rounded-xl p-3 text-center">
             <p className="text-sm text-blue-400">
@@ -536,7 +535,6 @@ const Transactions = () => {
           </div>
         )}
 
-        {/* Transaction List */}
         <div className="rounded-2xl border border-slate-200 dark:border-white/[0.07] bg-white/70 dark:bg-white/[0.02] overflow-hidden">
           {!loading && !error && visibleTxIds.length > 0 && (
             <div className="px-5 py-3 border-b border-slate-200 dark:border-white/[0.05] bg-slate-50/50 dark:bg-white/[0.01]">
@@ -640,7 +638,6 @@ const Transactions = () => {
           )}
         </div>
 
-        {/* Modals */}
         {showForm && <TransactionForm onSubmit={handleCreate} onCancel={() => setShowForm(false)} />}
         {editingTx && <TransactionForm initialData={editingTx} onSubmit={handleUpdate} onCancel={() => setEditingTx(null)} />}
 

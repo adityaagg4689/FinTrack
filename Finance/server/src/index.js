@@ -35,7 +35,6 @@ app.use(cors({
 
 app.use(express.json());
 
-
 const calculateMonthlySummary = async (userId) => {
   const now          = new Date();
   const currentMonth = now.getMonth() + 1;
@@ -76,20 +75,23 @@ const validateTransaction = (amount, type, category, date) => {
   return { valid: errors.length === 0, errors };
 };
 
+// ✅ FIXED: validateBudget with proper number parsing
 const validateBudget = (category, amount, month, year) => {
   const errors    = [];
   const numAmount = parseFloat(amount);
+  const numMonth  = parseInt(month);
+  const numYear   = parseInt(year);
 
   if (!category || !category.trim())
     errors.push('Category is required');
   if (isNaN(numAmount) || numAmount <= 0)
     errors.push('Amount must be a positive number');
-  if (!month || month < 1 || month > 12)
+  if (isNaN(numMonth) || numMonth < 1 || numMonth > 12)
     errors.push('Month must be between 1 and 12');
-  if (!year || year < 2000 || year > 2100)
+  if (isNaN(numYear) || numYear < 2000 || numYear > 2100)
     errors.push('Year must be between 2000 and 2100');
 
-  return { valid: errors.length === 0, errors };
+  return { valid: errors.length === 0, errors, numMonth, numYear };
 };
 
 // ==================== HEALTH CHECK ====================
@@ -97,7 +99,7 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'OK', message: 'Server running', timestamp: new Date().toISOString() });
 });
 
-// TRANSACTIONS 
+// ==================== TRANSACTIONS ====================
 
 app.get('/api/transactions', authMiddleware, async (req, res) => {
   try {
@@ -122,6 +124,17 @@ app.get('/api/transactions', authMiddleware, async (req, res) => {
     res.status(500).json({ success: false, error: error.message });
   }
 });
+
+app.get('/api/transactions/summary', authMiddleware, async (req, res) => {
+  try {
+    const summary = await calculateMonthlySummary(req.userId);
+    res.json({ success: true, summary });
+  } catch (error) {
+    console.error('GET /api/transactions/summary:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
 app.post('/api/transactions', authMiddleware, async (req, res) => {
   try {
     const { amount, type, category, date, note } = req.body;
@@ -185,6 +198,44 @@ app.put('/api/transactions/:id', authMiddleware, async (req, res) => {
   }
 });
 
+// ✅ FIXED: Bulk Delete registered BEFORE :id route
+app.delete('/api/transactions/bulk', authMiddleware, async (req, res) => {
+  try {
+    const { ids } = req.body;
+
+    if (!ids || !Array.isArray(ids) || ids.length === 0) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Please provide an array of transaction IDs' 
+      });
+    }
+
+    if (ids.length > 100) {
+      return res.status(400).json({
+        success: false,
+        error: 'Cannot delete more than 100 transactions at once'
+      });
+    }
+
+    const { data, error } = await supabase
+      .from('transactions')
+      .delete()
+      .in('id', ids)
+      .eq('user_id', req.userId)
+      .select();
+
+    if (error) throw error;
+
+    res.json({ 
+      success: true, 
+      message: `Deleted ${data.length} transactions`,
+      deletedCount: data.length
+    });
+  } catch (error) {
+    console.error('DELETE /api/transactions/bulk:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
 
 app.delete('/api/transactions/:id', authMiddleware, async (req, res) => {
   try {
@@ -207,17 +258,8 @@ app.delete('/api/transactions/:id', authMiddleware, async (req, res) => {
     res.status(500).json({ success: false, error: error.message });
   }
 });
-app.get('/api/transactions/summary', authMiddleware, async (req, res) => {
-  try {
-    const summary = await calculateMonthlySummary(req.userId);
-    res.json({ success: true, summary });
-  } catch (error) {
-    console.error('GET /api/transactions/summary:', error);
-    res.status(500).json({ success: false, error: error.message });
-  }
-});
 
-// BUDGETS 
+// ==================== BUDGETS ====================
 
 app.get('/api/budgets', authMiddleware, async (req, res) => {
   try {
@@ -278,6 +320,7 @@ app.post('/api/budgets', authMiddleware, async (req, res) => {
   try {
     const { category, amount, month, year } = req.body;
 
+    // ✅ FIXED: Use updated validateBudget that returns parsed numbers
     const validation = validateBudget(category, amount, month, year);
     if (!validation.valid)
       return res.status(400).json({ success: false, errors: validation.errors });
@@ -287,8 +330,8 @@ app.post('/api/budgets', authMiddleware, async (req, res) => {
       .select('id')
       .eq('user_id',  req.userId)
       .eq('category', category.trim())
-      .eq('month',    parseInt(month))
-      .eq('year',     parseInt(year))
+      .eq('month',    validation.numMonth)
+      .eq('year',     validation.numYear)
       .maybeSingle();
 
     if (checkError) throw checkError;
@@ -301,8 +344,8 @@ app.post('/api/budgets', authMiddleware, async (req, res) => {
         user_id:  req.userId,
         category: category.trim(),
         amount:   parseFloat(amount),
-        month:    parseInt(month),
-        year:     parseInt(year),
+        month:    validation.numMonth,
+        year:     validation.numYear,
       }])
       .select()
       .single();
@@ -320,6 +363,7 @@ app.put('/api/budgets/:id', authMiddleware, async (req, res) => {
     const { id }                         = req.params;
     const { category, amount, month, year } = req.body;
 
+    // ✅ FIXED: Use updated validateBudget
     const validation = validateBudget(category, amount, month, year);
     if (!validation.valid)
       return res.status(400).json({ success: false, errors: validation.errors });
@@ -329,8 +373,8 @@ app.put('/api/budgets/:id', authMiddleware, async (req, res) => {
       .select('id')
       .eq('user_id',  req.userId)
       .eq('category', category.trim())
-      .eq('month',    parseInt(month))
-      .eq('year',     parseInt(year))
+      .eq('month',    validation.numMonth)
+      .eq('year',     validation.numYear)
       .neq('id', id)
       .maybeSingle();
 
@@ -343,8 +387,8 @@ app.put('/api/budgets/:id', authMiddleware, async (req, res) => {
       .update({
         category:   category.trim(),
         amount:     parseFloat(amount),
-        month:      parseInt(month),
-        year:       parseInt(year),
+        month:      validation.numMonth,
+        year:       validation.numYear,
         updated_at: new Date(),
       })
       .eq('id', id)
@@ -384,7 +428,8 @@ app.delete('/api/budgets/:id', authMiddleware, async (req, res) => {
   }
 });
 
-//GOALS
+// ==================== GOALS ====================
+
 app.get('/api/goals', authMiddleware, async (req, res) => {
   try {
     const { data, error } = await supabase
@@ -414,6 +459,7 @@ app.get('/api/goals', authMiddleware, async (req, res) => {
     res.status(500).json({ success: false, error: error.message });
   }
 });
+
 app.post('/api/goals', authMiddleware, async (req, res) => {
   try {
     const { name, target_amount, deadline } = req.body;
@@ -442,6 +488,45 @@ app.post('/api/goals', authMiddleware, async (req, res) => {
     res.status(201).json({ success: true, goal: data });
   } catch (error) {
     console.error('POST /api/goals:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+app.put('/api/goals/:id', authMiddleware, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { name, target_amount, deadline } = req.body;
+
+    const errors = [];
+    if (!name || !name.trim()) errors.push('Name is required');
+    if (!target_amount || parseFloat(target_amount) <= 0) errors.push('Target amount must be positive');
+    if (!deadline || isNaN(new Date(deadline).getTime())) errors.push('A valid deadline is required');
+
+    if (errors.length > 0) {
+      return res.status(400).json({ success: false, errors });
+    }
+
+    const { data, error } = await supabase
+      .from('goals')
+      .update({
+        name: name.trim(),
+        target_amount: parseFloat(target_amount),
+        deadline,
+        updated_at: new Date(),
+      })
+      .eq('id', id)
+      .eq('user_id', req.userId)
+      .select()
+      .single();
+
+    if (error) throw error;
+    if (!data) {
+      return res.status(404).json({ success: false, error: 'Goal not found' });
+    }
+
+    res.json({ success: true, goal: data });
+  } catch (error) {
+    console.error('PUT /api/goals/:id:', error);
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -509,7 +594,7 @@ app.delete('/api/goals/:id', authMiddleware, async (req, res) => {
   }
 });
 
-//  RECURRING TRANSACTIONS 
+// ==================== RECURRING TRANSACTIONS ====================
 
 app.get('/api/recurring/upcoming', authMiddleware, async (req, res) => {
   try {
@@ -593,29 +678,96 @@ app.post('/api/recurring', authMiddleware, async (req, res) => {
     res.status(500).json({ success: false, error: error.message });
   }
 });
-app.put('/api/recurring/:id', authMiddleware, async (req, res) => {
+
+// ✅ Bulk DELETE for recurring registered BEFORE :id route
+app.delete('/api/recurring/bulk', authMiddleware, async (req, res) => {
   try {
-    const { id }                                          = req.params;
-    const { name, amount, type, category, frequency, is_active } = req.body;
+    const { ids } = req.body;
+
+    if (!ids || !Array.isArray(ids) || ids.length === 0) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Please provide an array of recurring transaction IDs' 
+      });
+    }
+
+    if (ids.length > 100) {
+      return res.status(400).json({
+        success: false,
+        error: 'Cannot delete more than 100 recurring transactions at once'
+      });
+    }
 
     const { data, error } = await supabase
       .from('recurring_transactions')
-      .update({
-        name:       name.trim(),
-        amount:     parseFloat(amount),
-        type,
-        category:   category.trim(),
-        frequency,
-        is_active,
-        updated_at: new Date(),
-      })
+      .delete()
+      .in('id', ids)
+      .eq('user_id', req.userId)
+      .select();
+
+    if (error) throw error;
+
+    res.json({ 
+      success: true, 
+      message: `Deleted ${data.length} recurring transactions`,
+      deletedCount: data.length
+    });
+  } catch (error) {
+    console.error('DELETE /api/recurring/bulk:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+app.put('/api/recurring/:id', authMiddleware, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { name, amount, type, category, frequency, next_due_date, is_active } = req.body;
+
+    // Validation
+    const errors = [];
+    if (!name || !name.trim()) errors.push('Name is required');
+    if (!amount || parseFloat(amount) <= 0) errors.push('Amount must be positive');
+    if (!type || !['income', 'expense'].includes(type)) errors.push('Type must be "income" or "expense"');
+    if (!category || !category.trim()) errors.push('Category is required');
+    if (!['daily', 'weekly', 'monthly', 'yearly'].includes(frequency)) errors.push('Invalid frequency');
+    if (is_active !== undefined && typeof is_active !== 'boolean') errors.push('is_active must be a boolean');
+
+    if (errors.length > 0) {
+      return res.status(400).json({ success: false, errors });
+    }
+
+    const updateData = {
+      name: name.trim(),
+      amount: parseFloat(amount),
+      type,
+      category: category.trim(),
+      frequency,
+      updated_at: new Date(),
+    };
+
+    if (next_due_date) {
+      if (isNaN(new Date(next_due_date).getTime())) {
+        return res.status(400).json({ success: false, error: 'A valid due date is required' });
+      }
+      updateData.next_due_date = next_due_date;
+    }
+
+    if (is_active !== undefined) {
+      updateData.is_active = is_active;
+    }
+
+    const { data, error } = await supabase
+      .from('recurring_transactions')
+      .update(updateData)
       .eq('id', id)
       .eq('user_id', req.userId)
       .select()
       .single();
 
     if (error) throw error;
-    if (!data)  return res.status(404).json({ success: false, error: 'Recurring transaction not found' });
+    if (!data) {
+      return res.status(404).json({ success: false, error: 'Recurring transaction not found' });
+    }
 
     res.json({ success: true, recurring: data });
   } catch (error) {
@@ -646,7 +798,8 @@ app.delete('/api/recurring/:id', authMiddleware, async (req, res) => {
   }
 });
 
-//  DASHBOARD SUMMARY 
+// ==================== DASHBOARD ====================
+
 app.get('/api/dashboard/summary', authMiddleware, async (req, res) => {
   try {
     const summary = await calculateMonthlySummary(req.userId);
@@ -657,10 +810,11 @@ app.get('/api/dashboard/summary', authMiddleware, async (req, res) => {
   }
 });
 
+// ==================== ERROR HANDLING ====================
+
 app.use((req, res) => {
   res.status(404).json({ success: false, error: `Route ${req.method} ${req.path} not found` });
 });
-
 
 app.use((err, req, res, next) => {
   console.error('Unhandled error:', err);
