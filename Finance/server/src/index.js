@@ -465,19 +465,20 @@ app.post('/api/goals', authMiddleware, async (req, res) => {
     const { name, target_amount, deadline } = req.body;
 
     const errors = [];
-    if (!name || !name.trim())                          errors.push('Name is required');
+    if (!name || !name.trim()) errors.push('Name is required');
     if (!target_amount || parseFloat(target_amount) <= 0) errors.push('Target amount must be positive');
     if (!deadline || isNaN(new Date(deadline).getTime())) errors.push('A valid deadline is required');
 
-    if (errors.length > 0)
+    if (errors.length > 0) {
       return res.status(400).json({ success: false, errors });
+    }
 
     const { data, error } = await supabase
       .from('goals')
       .insert([{
-        user_id:        req.userId,
-        name:           name.trim(),
-        target_amount:  parseFloat(target_amount),
+        user_id: req.userId,
+        name: name.trim(),
+        target_amount: parseFloat(target_amount),
         deadline,
         current_amount: 0,
       }])
@@ -512,7 +513,7 @@ app.put('/api/goals/:id', authMiddleware, async (req, res) => {
         name: name.trim(),
         target_amount: parseFloat(target_amount),
         deadline,
-        updated_at: new Date(),
+        // ✅ updated_at removed
       })
       .eq('id', id)
       .eq('user_id', req.userId)
@@ -533,11 +534,12 @@ app.put('/api/goals/:id', authMiddleware, async (req, res) => {
 
 app.post('/api/goals/:id/progress', authMiddleware, async (req, res) => {
   try {
-    const { id }     = req.params;
+    const { id } = req.params;
     const { amount } = req.body;
 
-    if (!amount || parseFloat(amount) <= 0)
+    if (!amount || parseFloat(amount) <= 0) {
       return res.status(400).json({ success: false, error: 'Amount must be positive' });
+    }
 
     const { data: goal, error: getError } = await supabase
       .from('goals')
@@ -547,17 +549,17 @@ app.post('/api/goals/:id/progress', authMiddleware, async (req, res) => {
       .maybeSingle();
 
     if (getError) throw getError;
-    if (!goal) return res.status(404).json({ success: false, error: 'Goal not found' });
+    if (!goal) {
+      return res.status(404).json({ success: false, error: 'Goal not found' });
+    }
 
-    const newAmount    = Math.min(goal.current_amount + parseFloat(amount), goal.target_amount);
-    const isCompleted  = newAmount >= goal.target_amount;
+    const newAmount = Math.min(goal.current_amount + parseFloat(amount), goal.target_amount);
 
     const { data, error } = await supabase
       .from('goals')
       .update({
         current_amount: newAmount,
-        completed_at:   isCompleted ? new Date() : null,
-        updated_at:     new Date(),
+        // ✅ updated_at removed
       })
       .eq('id', id)
       .eq('user_id', req.userId)
@@ -585,16 +587,16 @@ app.delete('/api/goals/:id', authMiddleware, async (req, res) => {
       .single();
 
     if (error) throw error;
-    if (!data)  return res.status(404).json({ success: false, error: 'Goal not found' });
+    if (!data) {
+      return res.status(404).json({ success: false, error: 'Goal not found' });
+    }
 
     res.json({ success: true, message: 'Goal deleted' });
   } catch (error) {
     console.error('DELETE /api/goals/:id:', error);
     res.status(500).json({ success: false, error: error.message });
   }
-});
-
-// ==================== RECURRING TRANSACTIONS ====================
+});// ==================== RECURRING TRANSACTIONS ====================
 
 app.get('/api/recurring/upcoming', authMiddleware, async (req, res) => {
   try {
