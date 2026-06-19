@@ -37,32 +37,38 @@ const Budgets = () => {
   ];
   const currentMonthName = months[currentMonth - 1];
 
-  const fetchBudgets = useCallback(async () => {
-    if (!user) return;
+ const fetchBudgets = useCallback(async () => {
+  if (!user) return;
 
-    setLoading(true);
-    setError('');
+  setLoading(true);
+  setError('');
 
-    try {
-      // ✅ Fetch budgets from backend
-      const response = await api.budgets.getAll({
-        month: currentMonth,
-        year: currentYear
-      });
-      
-      const budgetsData = response.budgets || [];
+  try {
+    const response = await api.budgets.getAll({
+      month: currentMonth,
+      year: currentYear
+    });
+    
+    const budgetsData = response.budgets || [];
 
-      if (isMounted.current) {
-        setBudgets(budgetsData);
-      }
-    } catch (err) {
-      console.error('Fetch budgets error:', err);
-      if (isMounted.current) setError(err.message || 'Failed to fetch budgets');
-    } finally {
-      if (isMounted.current) setLoading(false);
+    // ✅ Ensure all numeric fields are numbers
+    const sanitizedBudgets = budgetsData.map(budget => ({
+      ...budget,
+      amount: parseFloat(budget.amount) || 0,
+      spent: parseFloat(budget.spent) || 0,
+      percentage: parseFloat(budget.percentage) || 0,
+    }));
+
+    if (isMounted.current) {
+      setBudgets(sanitizedBudgets);
     }
-  }, [user, currentMonth, currentYear]);
-
+  } catch (err) {
+    console.error('Fetch budgets error:', err);
+    if (isMounted.current) setError(err.message || 'Failed to fetch budgets');
+  } finally {
+    if (isMounted.current) setLoading(false);
+  }
+}, [user, currentMonth, currentYear]);
   // Real-time subscription with proper sync indicator handling
   useEffect(() => {
     if (!user) return;
