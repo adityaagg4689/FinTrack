@@ -16,7 +16,7 @@ const limiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
 });
-app.use('/api', limiter);
+
 
 const allowedOrigins = [
   'http://localhost:5173',
@@ -32,7 +32,7 @@ app.use(cors({
   },
   credentials: true,
 }));
-
+app.use('/api', limiter);
 app.use(express.json());
 
 const calculateMonthlySummary = async (userId) => {
